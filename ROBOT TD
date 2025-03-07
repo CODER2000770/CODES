@@ -1,0 +1,229 @@
+// Tank Drive Robot Script
+
+// --- Configuration ---
+
+const leftMotorPinForward = 1; // Replace with your actual pin numbers
+const leftMotorPinBackward = 2;
+const rightMotorPinForward = 3;
+const rightMotorPinBackward = 4;
+
+// Motor speed range (0-255 for typical PWM)
+const maxSpeed = 255;
+
+// --- Motor Control Functions ---
+
+function setLeftMotor(speed) {
+  if (speed > 0) {
+    analogWrite(leftMotorPinForward, speed);
+    analogWrite(leftMotorPinBackward, 0);
+  } else if (speed < 0) {
+    analogWrite(leftMotorPinForward, 0);
+    analogWrite(leftMotorPinBackward, -speed);
+  } else {
+    analogWrite(leftMotorPinForward, 0);
+    analogWrite(leftMotorPinBackward, 0);
+  }
+}
+
+function setRightMotor(speed) {
+  if (speed > 0) {
+    analogWrite(rightMotorPinForward, speed);
+    analogWrite(rightMotorPinBackward, 0);
+  } else if (speed < 0) {
+    analogWrite(rightMotorPinForward, 0);
+    analogWrite(rightMotorPinBackward, -speed);
+  } else {
+    analogWrite(rightMotorPinForward, 0);
+    analogWrite(rightMotorPinBackward, 0);
+  }
+}
+
+// --- Tank Drive Commands ---
+
+function forward(speed) {
+  setLeftMotor(speed);
+  setRightMotor(speed);
+}
+
+function backward(speed) {
+  setLeftMotor(-speed);
+  setRightMotor(-speed);
+}
+
+function turnLeft(speed) {
+  setLeftMotor(-speed);
+  setRightMotor(speed);
+}
+
+function turnRight(speed) {
+  setLeftMotor(speed);
+  setRightMotor(-speed);
+}
+
+function stop() {
+  setLeftMotor(0);
+  setRightMotor(0);
+}
+
+// --- Example Automated Sequence ---
+
+function runSequence() {
+  console.log("Starting sequence...");
+
+  forward(maxSpeed);
+  delay(2000); // Move forward for 2 seconds
+
+  stop();
+  delay(500);
+
+  turnLeft(maxSpeed);
+  delay(1000); // Turn left for 1 second
+
+  stop();
+  delay(500);
+
+  backward(maxSpeed);
+  delay(1500); // Move backward for 1.5 seconds
+
+  stop();
+
+  console.log("Sequence complete.");
+}
+
+// --- Initialization ---
+
+function setup() {
+  // Set pin modes (OUTPUT for motor control)
+  pinMode(leftMotorPinForward, OUTPUT);
+  pinMode(leftMotorPinBackward, OUTPUT);
+  pinMode(rightMotorPinForward, OUTPUT);
+  pinMode(rightMotorPinBackward, OUTPUT);
+
+  console.log("Robot initialized.");
+
+  runSequence(); // Start the automated sequence
+}
+
+// --- Main Loop (if needed for continuous operation) ---
+// This example is a sequence, so the loop is not needed.
+// If you wanted to add sensor input, or continuous control, you would use a loop.
+/*
+function loop() {
+  // Your continuous control logic here
+}
+*/
+
+// --- Helper Functions ---
+
+function delay(ms) {
+  // Simple delay function (replace with your platform's delay if available)
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    // Do nothing, just wait
+  }
+}
+
+//--- Platform Specific Code ---
+
+//If using Arduino or similar, you would need to replace analogWrite, pinMode, and console.log with Arduino specific functions.
+//If using a browser environment, you would need to simulate the motor control and pin functions.
+//If using Node.js with a robotics library, you would replace the functions with that library's functions.
+
+//--- Example Arduino Implementation ---
+
+/*
+const int leftMotorPinForward = 1;
+const int leftMotorPinBackward = 2;
+const int rightMotorPinForward = 3;
+const int rightMotorPinBackward = 4;
+
+const int maxSpeed = 255;
+
+void setup() {
+  pinMode(leftMotorPinForward, OUTPUT);
+  pinMode(leftMotorPinBackward, OUTPUT);
+  pinMode(rightMotorPinForward, OUTPUT);
+  pinMode(rightMotorPinBackward, OUTPUT);
+  Serial.begin(9600);
+  Serial.println("Robot initialized.");
+  runSequence();
+}
+
+void loop() {
+  // Not used in this sequence example
+}
+
+void setLeftMotor(int speed) {
+  if (speed > 0) {
+    analogWrite(leftMotorPinForward, speed);
+    analogWrite(leftMotorPinBackward, 0);
+  } else if (speed < 0) {
+    analogWrite(leftMotorPinForward, 0);
+    analogWrite(leftMotorPinBackward, -speed);
+  } else {
+    analogWrite(leftMotorPinForward, 0);
+    analogWrite(leftMotorPinBackward, 0);
+  }
+}
+
+void setRightMotor(int speed) {
+  if (speed > 0) {
+    analogWrite(rightMotorPinForward, speed);
+    analogWrite(rightMotorPinBackward, 0);
+  } else if (speed < 0) {
+    analogWrite(rightMotorPinForward, 0);
+    analogWrite(rightMotorPinBackward, -speed);
+  } else {
+    analogWrite(rightMotorPinForward, 0);
+    analogWrite(rightMotorPinBackward, 0);
+  }
+}
+
+void forward(int speed) {
+  setLeftMotor(speed);
+  setRightMotor(speed);
+}
+
+void backward(int speed) {
+  setLeftMotor(-speed);
+  setRightMotor(-speed);
+}
+
+void turnLeft(int speed) {
+  setLeftMotor(-speed);
+  setRightMotor(speed);
+}
+
+void turnRight(int speed) {
+  setLeftMotor(speed);
+  setRightMotor(-speed);
+}
+
+void stop() {
+  setLeftMotor(0);
+  setRightMotor(0);
+}
+
+void runSequence() {
+  Serial.println("Starting sequence...");
+
+  forward(maxSpeed);
+  delay(2000);
+
+  stop();
+  delay(500);
+
+  turnLeft(maxSpeed);
+  delay(1000);
+
+  stop();
+  delay(500);
+
+  backward(maxSpeed);
+  delay(1500);
+
+  stop();
+
+  Serial.println("Sequence complete.");
+}
+*/
