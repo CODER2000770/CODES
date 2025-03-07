@@ -2,7 +2,7 @@
 
 // --- Configuration ---
 
-const leftMotorPinForward = 1; // Replace with your actual pin numbers
+const leftMotorPinForward = 1; // 1256
 const leftMotorPinBackward = 2;
 const rightMotorPinForward = 3;
 const rightMotorPinBackward = 4;
