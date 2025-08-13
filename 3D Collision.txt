@@ -1,0 +1,385 @@
+3D Collision
+Key Points
+[ ] How do we represent collision shapes in 3D?
+[ ] What is a transformation?
+[ ] What does it mean to compose transformations, and why do we do it?
+[ ] How do we compose transformations?
+[ ] Why is it useful for transformations to have inverses?
+[ ] What are four ways to represent directions or rotations in 3D graphics?
+[ ] What is the difference between a vector and a bivector?
+[ ] How can we represent a plane with a Vec3 and an f32?
+[ ] How is our new example restitution code different from older versions?
+[ ] How are kinematics and physics different?
+[ ] What is the role of mass in linear physical movement, and how does it come into play when a force is applied?
+[ ] What is the role of the inertia tensor in angular movement, and how does it come into play when a torque is applied?
+Other Points
+[ ] What does "rigid" mean in "rigidbody physics"?
+[ ] What are a few different types of joints in rigidbody physics and their applications?
+Collision in 3D
+Remember "when things touch, stuff can happen"? Let's do it again, but in 3D!
+
+In 3D, as in 2D, we often distinguish between the way something looks and what shape its collider is. A complex-looking realistic character will often be made up of a number of smaller, simpler oriented bounding boxes or spheres—or even just a single box!
+
+Let's revisit our friend the AABB, or Axis-Aligned Bounding Box. In 2D it was like this:
+
+struct AABB2D { // AKA "Rect"
+    pos:Vec2,
+    size:Vec2
+}
+In 3D it's more like:
+
+struct AABB3D {
+    pos:Vec3, // New!
+    size:Vec3 // New!
+}
+The eagle-eyed reader will note that boxes are polymorphic WRT to the type of a vector:
+
+struct AABB<V:Vector> {
+    pos:V,
+    size:V
+}
+Because really, an AABB is just a pair of extents along some axes (defined by the vector space). You can use generics for this or not.
+
+Spheres are another good one, even simpler since their size is a scalar like f32 or whatever:
+
+struct Sphere<V:Vector,S:Scalar> {
+    pos:V, // Could hardcode Vec3
+    size:S // Could hardcode f32
+}
+We call a 2D sphere a circle, for example.
+
+Lines are the same deal: just swap out the vector type.
+
+We'll be using the ultraviolet crate and its Vec3 type.
+
+Rotation! In! Space!
+As in 2D, every object can be thought of as having its own local coordinate system; if objects have "child" objects, then those have their coordinate systems defined in relative terms with respect to their parents, and then their parents, and so on. Before, we only looked at translations of 2D objects, so adding together offsets got us to where we needed to be. We're going to go more general now with transformation matrices.
+
+A transformation matrix describes how to transform points or vectors from one coordinate space to another; we are especially interested in linear transformations since they can be concatenated and are invertible. In 3D we generally use augmented 4x4 matrices to represent our transforms1. One special and useful case of these transformations are the similarities (AKA "affine transformations"): a rotation followed by a translation followed by a scale. One even more special case, the isometry or rigid-body transformation, does away with the scale part.
+
+Our schema for basic transform matrices is a bit like this. Any of these could be multiplied by a (column) vector position to map that vector onto the transformed space:
+
+Translation = [1  0  0  tx
+               0  1  0  ty
+               0  0  1  tz
+               0  0  0   1]
+^ Note that this is really a shear in the 4th dimension
+
+Rotation in XY plane = this is complicated
+
+Scale = [sx  0  0  0
+          0 sy  0  0
+          0  0 sz  0
+          0  0  0  1]
+In the end, our transform matrices will get pretty complicated. The machinery we'll be using to concatenate all these transformations is matrix multiplication, but order matters! As an exercise, think about a square at the origin of a 2D graph. If we move it "right" by 10, then rotate it counter-clockwise 45°, we get a different result than if we were to turn it counter-clockwise and then move it "right". Each step of the transformation changes the local coordinate system, and all our transformations are happening with respect to that local system: T(sq) = R(sq) * L(sq) * S(sq), or "the transform of the square is its rotation times its translation times its scale". We're post-multiplying because we interpret all moves to be with respect to the current frame of reference, not the global frame.
+
+If our imaginary square had a little circle at its top right corner, we'd like that circle to still be on the top right corner after we move and rotate the square; if we store a tree of such transformations (with each object's transform defined in terms of its parent) it's easy to maintain this invariant, but how do we find the circle's location in the world? Concatenation again! If W is the world-transform matrix of an object, and we know the world-transform matrix of our square, then W(circ) = W(sq) * T(circ). Again, we're post-multiplying using the same intuition as before.
+
+The extra cool thing about matrices is that they can be inverted. We can compute a local-to-world transform as above, but we can also convert a world-to-local transform by inverting each matrix along the way from the world frame of reference to the object's frame. This is important when we need to, say, put a coffee cup in a character's hand; but it's also important for viewing the scene in the first place! If we have a transform that positions a virtual camera in the world somewhere, and we know the world positions of all the objects in the scene, then we also need a way to transform those world positions into the camera's frame of reference—this is just the inverse of the camera's transformation. From there we can apply perspective projection and map the 3D world onto a 2D viewport.
+
+In ultraviolet, Mat3 and Mat4 will be our workhorse structs here along with Vec (which are directed line segments—they can be either points or displacements).
+
+Let's talk about rotations in depth now. You'll see three main ways to talk about rotations:
+
+A direction vector (really a pseudovector, AKA axial vector, AKA bivector in disguise), usually a unit vector pointing in some direction. Note that this isn't really a rotation! It's mostly just a direction.
+Axis-angle rotation: An axis (unit vector) and a scalar, or a non-unit axis vector whose magnitude is the amount of rotation. Tricky to compose multiple rotations this way.
+Camera look-at, defined with respect to a at direction, an up direction, and a right direction, which should all be orthogonal to each other. You can see that this defines a 3D coordinate system! In three dimensions we need three directions to get a proper rotation.
+Yaw/pitch/roll angles (sometimes mistakenly called Euler angles): how much to rotate around the object's local up/down (Y) axis, then the left/right (X) axis, and then the front/back (Z) axis. Simple, compact data representation, and great for 2D, but prone to gimbal lock and other issues in 3D; it's also hard to figure out the right YPR angles for a given rotation. They can't be smoothly interpolated either (if you're only interpolating one kind of angle at a time it's okay though).
+Rotation matrices (a transform with just a rotation component); while easy to compose multiple rotations, it is not at all compact and like many of the above representations you can't smoothly interpolate between two rotation matrices.
+Quaternions or rotors: Mathematically equivalent; we'll be using rotors in this course. The key insight here is that rotations happen in a plane, and the two formalisms differ on how that plane and the amount of rotation is encoded in four numbers. They're compact, not prone to gimbal lock, and can smoothly interpolate.
+Key points for using rotors in ultraviolet:
+
+To create a Rotor3, try from_angle_plane, from_rotation_xz or from_euler_angles.
+To compose rotations, pre-multiply: rot_ab = rot_b * rot_a
+To get the position of a vector after rotation: vec_r = rot * vec, or rotate_vec (or if you're rotating lots of vectors, rotate_vecs or convert to a Mat3 using into_matrix).
+To turn a Rotor3 into a (3x3) matrix, try into_matrix().
+To reduce memory usage for a complete transformation from 9 or 16 numbers (as in a 3x3 or 4x4 matrix) to 8, you might prefer to create a Similarity3 transformation which combines a scale factor, a rotation, and a displacement.
+
+Types like Rotor3 and Similarity3 may be faster for concatenating and inverting than matrices, but slower for applying to many points at once. So eventually you will convert to matrices.
+
+To wrap up our tour of collision shapes, let's explore shapes with orientations:
+
+struct OBB { // Oriented bounding box!
+    center:Vec3, // The center of the box
+    reference:Mat3, // I'm a rotation matrix, no need for homogeneous coords
+    half_widths:Vec3 // How far from the center I go in each direction
+}
+
+struct Capsule { // A "sphere-swept volume" made by moving a sphere along a line
+    p1: Vec3, // Start of line
+    p2: Vec3, // End of line
+    r:f32, // Radius
+    // Where's the rotation? It's the rotation between the points!
+}
+
+struct Compound {
+    transform:Similarity3, // Where am I?
+    shapes: Vec<Shape> // enum Shape { OBB(OBB), Capsule(Capsule), ... }
+}
+Why are we not worried about compactness for Compound? Well, mixing different types of shapes will always be slow or painful, and this way at least we don't need to do dynamic dispatch. If you're okay with compounds only containing one kind of shape, consider struct Compound<S:Shape> { ... shapes:Vec<S>} } for a compact alternative that won't require any matching or anything. In that case you'd want a Shape trait probably.
+
+Collision Detection
+We need some collision detection tests! For today's lab, I'll be reproducing the sphere-sphere and sphere-plane tests from Real-Time Collision Detection, which you can read through the library's access to O'Reilly.
+
+struct Sphere {
+    pos:Vec3,
+    r:f32
+}
+/// Are s1 and s2 touching?
+fn touching_sphere_sphere(s1:&Sphere, s2:&Sphere) -> bool {
+    // Is the (squared) distance between the centers less than the
+    // (squared) sum of the radii?
+    s2.pos.dot(s1.pos) <= (s1.r+s2.r).powi(2)
+}
+/// What's the offset I'd need to push s1 and s2 out of each other?
+fn disp_sphere_sphere(s1:&Sphere, s2:&Sphere) -> Option<Vec3> {
+    let offset = s2.pos - s1.pos;
+    let distance = offset.mag();
+    if distance < s1.r + s2.r {
+        // Make sure we don't divide by 0
+        let distance = if distance == 0.0 { 1.0 } else { distance };
+        // How much combined radius is "left over"?
+        let disp_mag = (s1.r+s2.r)-distance;
+        // Normalize offset and multiply by the amount to push
+        Some(offset * (disp_mag / distance))
+    } else {
+        None
+    }
+}
+struct Plane {
+    // A normal, has to be a unit vector
+    n:Vec3,
+    // And a distance of how far along the normal this is
+    d:f32
+}
+fn touching_sphere_plane(s:&Sphere, p:&Plane) -> bool {
+    // Find the distance of the sphere's center to the plane
+    (s.pos.dot(p.n) - p.d).abs() <= s.r
+}
+fn disp_sphere_plane(s:&Sphere, p:&Plane) -> Option<Vec3> {
+    // Find the distance of the sphere's center to the plane
+    let dist = (s.pos.dot(p.n) - p.d);
+    if dist.abs() <= s.r {
+        // If we offset from the sphere position opposite the normal,
+        // we'll end up hitting the plane at `dist` units away.  So
+        // the displacement is just the plane's normal * (r-dist).
+        Some(p.n * (s.r - dist))
+    } else {
+        None
+    }
+}
+Our lab will have a bunch of marbles of different sizes on a plane, and we'll have controls for tilting the plane in different directions.
+
+struct Wall {
+    body:Plane,
+}
+struct Marble {
+    body:Sphere,
+    vel:Vec3,
+}
+We can use something like our collision detection and restitution scheme from before, but it would be very useful if our displacement vectors were really minimum translation vectors. The two displacement functions above meet this criterion.
+
+Our contact generation code will be basically unchanged (you'll have a Vec of marbles and a Vec of walls). To do restitution in our wall-marble and marble-marble setting:
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+struct Contact<T: Copy> {
+    a: T,
+    b: T,
+    mtv: Vec3,
+}
+
+struct Contacts {
+    floor_ball: Vec<Contact<usize>>,
+    ball_ball: Vec<Contact<usize>>,
+}
+
+impl Contacts {
+    fn new() -> Self {
+        Self {
+            floor_ball: vec![],
+            ball_ball: vec![],
+        }
+    }
+    fn sort(&mut self) {
+        self.floor_ball.sort_unstable_by(|a,b| b.mtv.mag_sq().partial_cmp(&a.mtv.mag_sq()).unwrap());
+        self.ball_ball.sort_unstable_by(|a,b| b.mtv.mag_sq().partial_cmp(&a.mtv.mag_sq()).unwrap());
+    }
+    fn clear(&mut self) {
+        self.floor_ball.clear();
+        self.ball_ball.clear();
+    }
+}
+
+fn handle_collisions(walls:&[Wall], marbles:&mut [Marble], contacts:&mut Contacts) {
+    const COLLISION_STEPS:usize=3;
+    for _step in 0..COLLISION_STEPS {
+        contacts.clear();
+        // gather contacts
+        // ...
+        // sort contacts
+        contacts.sort();
+        // In 3d everything is trickier, so we'll just blithely assume we can resolve all collisions within COLLISION_STEPS steps.
+        // Lots of marbles on the floor...
+        for c in contacts.floor_ball.iter() {
+            let a = c.a;
+            let b = c.b;
+            // We'll pay the cost of extra collision checks to avoid tracking displacements and checking if collisions have been resolved.
+            if let Some(disp) = disp_sphere_plane(&marbles[b].body, &walls[a].body) {
+                // This is a marble and a wall, so we know the wall won't be moved.
+                // We can imagine we're instantaneously applying a
+                // velocity change to pop the object just above the floor.
+                marbles[b].body.pos += disp;
+                // It feels a little weird to be adding displacement (in
+                // units) to velocity (in units/frame), but we'll roll
+                // with it.  We're not exactly modeling a normal force
+                // here but it's something like that.
+                marbles[b].vel += disp;
+            }
+        }
+        // And marbles can bump into each other in perfectly elastic collisions!
+        for c in contacts.ball_ball.iter() {
+            let a = c.a;
+            let b = c.b;
+            // Just split the difference.  In crowded situations this will
+            // cause issues, but those will always be hard to solve with
+            // this kind of technique in 3d.
+            if let Some(disp) = disp_sphere_sphere(&marbles[a].body, &marbles[b].body) {
+                marbles[a].body.pos -= disp/2.0;
+                marbles[a].vel -= disp/2.0;
+                marbles[b].body.pos += disp/2.0;
+                marbles[b].vel += disp/2.0;
+            }
+        }
+    }
+}
+We could stop here and have good-enough collision for physically simple games like role-playing games, brawlers, or even 2D-in-3D platformers. But why stop now?
+
+Physics in 3D
+When we want to produce realistic simulations, we have to go beyond collision and into physics. Whereas collision detection and response is mainly concerned with maintaining non-interpenetration constraints, physics simulations cover a much wider range of concerns:
+
+Conservation of linear and angular momentum
+Objects with differing masses, centers of mass, and other parameters
+Expressing and enforcing joint or spring-damper constraints to assemble physical objects
+Controlling objects via forces and impulses
+Modeling deformable objects
+The big ideas here are phrasing dynamics in terms of forces on bodies and further generalizing the constraints on pairs of objects beyond avoiding interpenetration.
+
+Kinematics and Integration
+We can take two views of the movement of physical objects. So far we've considered only kinematics: we integrate acceleration to obtain velocity, and velocity to obtain position. Objects are generally modeled as unit point masses.
+
+Because game scenes are complex and interactive, we can't in general tractably solve the equations of motion for all objects analytically. So we tend to use numeric methods to solve those differential equations, assuming that within a frame velocity and acceleration are linear or mostly linear. There are a bunch of different approaches to integration (Glenn Fiedler has a nice overview), and if you dig into physics simulation you'll want to know the difference between RK4 and velocity Verlet. For now, let's just compare two integrators: explicit Euler and semi-implicit Euler.
+
+Explicit Euler integration is a simple approach to leverage the local linearity assumption:
+
+obj.pos += obj.vel * DT;
+obj.vel += obj.acc * DT;
+We uniformly discretize the differential equation, taking a small DT and finding the new position based on the old velocity and the new velocity based on the current acceleration. This is okay, but let's explore it a little. Assume the object starts at the origin with zero velocity and we apply a constant acceleration of 30 units per second. If DT is 
+, we'll see the following progression of states:
+
+T	X	VX
+1/30	0	1
+2/30	1/30	2
+3/30	3/30	3
+4/30	6/30	4
+…	…	…
+30/30	435/30	30
+So we end up with 
+.
+
+If we were to solve it analytically, we'd want to solve for 
+, so 
+. Well, that's not quite right—why did that happen?
+
+Each frame, we're increasing the position by the old velocity and then updating the velocity with the acceleration. So in updating the position we ignore about half of each frame's acceleration. In cases where acceleration is not constant, this problem gets even worse—decreasing acceleration would lead to an increase of energy in the system.
+
+If instead we updated velocity and then updated position, like so, we'd have semi-implicit Euler integration:
+
+obj.vel += obj.acc * DT;
+obj.pos += obj.vel * DT;
+Then in our constant acceleration case we'd end up with 
+, an error in the opposite direction. On the other hand, we'd acknowledge acceleration changes immediately and would not see the same instability.
+
+Other integrators do things like update the position with half a timestep worth of velocity, update the velocity, then update the position with half a timestep of the new velocity. Some will evaluate the differential equations at four times between the frames.
+
+The important thing to remember is that there is no "best" integrator in general—they all have tradeoffs with respect to efficiency and accuracy in different settings. Even within a single game, we might use different integrators for the motion of different sorts of objects!
+
+Momentum and Dynamics
+If we want to go from kinematics to dynamics, we need to change viewpoints: now, we model the motion of objects by saying that objects are caused to move by forces. In order to work with forces, objects now need mass and density parameters (for now we'll assume uniform density). To express momentum in our new setting, we can either continue to use kinematic equations by dividing force by mass to obtain acceleration, or we can work directly with momenta by integrating forces; then, dividing momentum by mass gives us velocity.
+
+Now, if we continue to use our semi-implicit Euler integration, we'll do something like this:
+
+obj.momentum += obj.force * DT;
+let vel = obj.momentum / obj.mass;
+obj.pos += vel * DT;
+We might prefer to cache velocity somewhere rather than recompute it as needed, and update it whenever momentum changes have all been applied.
+
+If we wanted to apply a force like gravity to an object, we can an API like this:
+
+impl Body {
+    // If forces are cleared every frame, we can apply momentum changes in one go later
+    pub fn apply_force(&mut self, f:Force) {
+        self.force += f;
+        // Or we could just increase momentum by f * DT here and not maintain a Force
+        // If you want rotation, apply a torque here!
+        // You'll also need a point in space where the force is being applied from.
+    }
+    // And then an immediate version.
+    // An impulse is like an "instantaneous" force
+    pub fn apply_impulse(&mut self, f:Force) {
+        self.momentum += f;
+        // If you want rotation, apply an instantaneous change to angular momentum here!
+        // You'll also need a point in space where the force is being applied from.
+    }
+}
+It's up to you whether you want to store the net force and apply it at integration time or increment momentum every time a force is applied.
+
+Angular Movement
+Objects don't only move along the world's axes, but may also rotate at varying rates; just as objects have mass, they also have inertia which describes how difficult it is to set an object spinning and slow it down again. Modeling inertia precisely is tricky and depends on objects' shapes, masses, and densities, so for now we'll assume the inertia matrix I_B has been calculated for the body's reference rotation. If inertia is like mass, torques are like forces and give the rate of change of the angular momentum 
+, which we can convert to angular velocity 
+ (by "dividing" by the moment of inertia) and then to changes in the object's rotation.
+
+But what are the types of angular momentum and velocity? While the rotation of an object is still a rotor (which orientation), the angular velocity 
+, angular momentum 
+, and torques are all bivectors: in which plane, and how much2. While a vector is an oriented line segment, a bivector is an oriented plane segment. In 3D, both of these have three components (signed magnitude of the line's projection onto the x, y, and z planes for vectors; signed area of the plane's projection onto the xy, yz, and zx planes for bivectors). The important thing to remember is that a bivector has a natural interpretation as a plane of rotation and a direction of rotation, and this is why rotors (or, equivalently, quaternions) are made up of a bivector component (defined in terms of three reference planes) and a scalar component.
+
+A common hack used in game engines is to use axial vectors (our Vec3 type) in place of bivectors. You'll see some resources that explain how to do equations of motion with vectors and quaternions, but we'll do something a bit different:
+
+obj.l += obj.torque * DT; // Integrate L (angular momentum)
+let w = obj.inertia().inv() * obj.l; // Get angular velocity from momentum and inertia (which depends on current orientation); if you ignore inertia just let w = L
+obj.transform.rotation = (-0.5*DT*w*obj.transform.rotation).normalized();
+Since we are using projective geometric algebra, we can get by with bivectors for 
+ and velocity and integrate both simultaneously. We do still need to update our rotation.
+
+Rigid Bodies
+So, the above still really is written in terms of single points with unit mass. Rigid body physics allows us to extend these results to larger objects like spheres, boxes, and convex polytopes which are rigid in the sense that whenever any of their points are transformed by some isometry, all of their points are transformed in the same way: in other words, objects where deformation due to movement is always zero. Note that this assumption covers the object's physical behavior, not necessarily its animations—we could have a 3D model which seems to deform when accelerating quickly, but as long as its simulated physical body stays rigid it's no problem.
+
+One important consideration with rigid bodies is that objects now may have a contact manifold with each other rather than a single contact point; the manifold could be a point, a line, or a polygon. This phenomenon is equally true for kinematics, but in kinematics we can usually use contact points closest to the objects' centers of gravity or some other trick. In rigid bodies, the manifold is important since forces between objects are applied across that manifold.
+
+Between the importance of the rigidity assumption and the necessity of deriving inertia tensors, we generally build complex rigidbodies out of multiple simpler ones connected by joints. Joints can be long-lived (e.g., the hinge connecting a door to a wall, or a wheel to a car chassis) or short-lived (a temporary spring constraint forcing two objects a certain distance apart, or a joint pulling a character's gaze and head towards an important object). Common types of joints include:
+
+Hinge (one rotational degree of freedom and a zero distance constraint)
+Spring (one linear degree of freedom, three rotational degrees of freedom, and a force-based distance constraint)
+Slider (one linear degree of freedom and a distance constraint)
+Ball-and-socket (three rotational degrees of freedom and a zero distance constraint)
+Fixed (no degrees of freedom and a zero distance constraint)
+These are often used in transient settings e.g. to keep objects fixed to moving platforms
+Enforcing joint constraints is an additional step beyond collision response (though collision response can also be modeled with constraints): since many joints might exert constraints on the same object and apply forces from different positions, we need utilities for determining the location and orientation of arbitrary points on a rigidbody's surface (so we know how much force to apply where).
+
+We could try to solve these sets of constraints object by object, independently, one after another, like we used to do with collision response; two local methods work by applying spring forces to resolve constraint violations or by applying impulses until no constraints are violated anymore. Both of these are sensitive to timestep size and numerical errors in the integrator, though the impulse-based methods perform better. To mitigate these issues, game developers have started exploring global analytical methods which compute exactly how much force is needed to solve the constraint problem at every simulation step. This technique phrases constraint solving as a linear complementary problem and uses an off-the-shelf iterative LCP solver to minimize the constraint violations (hopefully to zero!); this also allows for a warm start for the next frame since the next frame is likely to have very similar forces and constraints to the current frame.
+
+Lab: Marble Madness
+Finally, we can discuss the lab! This is not a rigidbody physics lab, but a collision lab.
+
+You have a few options for this lab, do as many as you like and you'll get full credit if you do at least three points (you can also get more than full credit!). Remember that you can find collision tests and displacement functions online in books like Real-Time Collision Detection, which you can get through the library's access to O'Reilly, or you can find these tests on various websites.
+
+Start with your own game, or with the collision3d starter and content.zip.
+
+Make the marbles collide with the floor and each other.
+Make it so balls on the floor slow down gradually over time.
+Add oriented bounding boxes and capsules and their collision tests, and change the ground into an OBB and marbles into capsules (maybe add a new model). For a second point, compare "staircases" made of several OBBs to "ramps" made of several planes (maybe have just one sphere/capsule and control it directly with the keyboard).
+Switch to swept collision tests to avoid the risk of tunnelling.
+Add angular kinematics so the balls roll as they move based on their velocity.
+Add linear physics, giving the marbles masses based on their radii. For a second point, add angular momentum and physics. Or, for a second point, do collision response by applying impulses instead of moving positions and velocities.
+Footnotes:
+1 Why do we need a 4x4 matrix for transforming 3D objects? We want to have linear transformations so that we can concatenate matrices together to concatenate transforms, and many transformations which would be non-linear in 3D (e.g. perspective) are linear in 4D. The more you know!
+2 Note that in 2D, there is only one plane of rotation so a scalar suffices to describe angular momentum and velocity.
